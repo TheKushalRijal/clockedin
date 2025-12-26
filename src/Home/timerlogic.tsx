@@ -36,7 +36,9 @@ export type ShiftSession = {
 export type RunningShift = {
   startMs: number;
   startedAtDayKey: string;
+  baseTodaySec: number; // ← how much was already worked today
 };
+
 
 export type RollupMap = Record<string, number>; // key -> total seconds
 
@@ -212,18 +214,20 @@ export async function getSnapshot(): Promise<TrackerSnapshot> {
     readRollup(STORAGE_KEYS.ROLLUP_WEEK),
     readRollup(STORAGE_KEYS.ROLLUP_MONTH),
   ]);
-    const now = nowMs();
-
-  const todayKey = getDayKeyLocal(now);
+const now = nowMs();
+const todayKey = getDayKeyLocal(now);
 let elapsedSec;
 
 if (running) {
-  // live running timer
-  elapsedSec = Math.floor((now - running.startMs) / 1000);
+  const runningSec = Math.floor(
+    (now - running.startMs) / 1000
+  );
+
+  elapsedSec = running.baseTodaySec + runningSec;
 } else {
-  // show today's completed work
   elapsedSec = day[todayKey] ?? 0;
 }
+
 
 
   const weekKey = getWeekKeyLocal(now);
@@ -252,11 +256,16 @@ export async function startShift(): Promise<RunningShift> {
     throw new Error("Shift already running.");
   }
 
-  const startMs = nowMs();
-  const running: RunningShift = {
-    startMs,
-    startedAtDayKey: getDayKeyLocal(startMs),
-  };
+ const startMs = nowMs();
+const todayKey = getDayKeyLocal(startMs);
+const dayRollup = await readRollup(STORAGE_KEYS.ROLLUP_DAY);
+
+const running: RunningShift = {
+  startMs,
+  startedAtDayKey: todayKey,
+  baseTodaySec: dayRollup[todayKey] ?? 0,
+};
+
 
   await writeRunning(running);
   return running;
@@ -403,4 +412,11 @@ export function formatHM(totalSec: number) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   return `${h}:${pad2(m)}`;
+}
+export async function getAllRollups() {
+  const day = await readRollup(STORAGE_KEYS.ROLLUP_DAY);
+  const week = await readRollup(STORAGE_KEYS.ROLLUP_WEEK);
+  const month = await readRollup(STORAGE_KEYS.ROLLUP_MONTH);
+
+  return { day, week, month };
 }

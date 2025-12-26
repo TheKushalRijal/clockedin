@@ -190,7 +190,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <ImageBackground
         source={{
-          uri: "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=2070&q=80",
+          uri: "./assets/mywallpaper.jpg",
         }}
         style={styles.backgroundImage}
         blurRadius={20}

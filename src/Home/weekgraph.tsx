@@ -10,6 +10,7 @@ import {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 
 const { width } = Dimensions.get("window");
 const EMPTY_WEEK: {
@@ -40,6 +41,7 @@ type Props = {
 export default function WeeklyReport({ bars, barAnimations }: Props) {
   const totalHours = bars.reduce((sum, b) => sum + b.hours, 0);
   const avgHours = bars.length ? totalHours / bars.length : 0;
+  const navigation = useNavigation();
 
   return (
     <BlurView intensity={80} tint="dark" style={styles.card}>
@@ -50,9 +52,13 @@ export default function WeeklyReport({ bars, barAnimations }: Props) {
           <Text style={styles.cardSubtitle}>This Week</Text>
         </View>
 
-        <TouchableOpacity style={styles.moreButton}>
-          <Ionicons name="chevron-forward" size={22} color="#9CA3AF" />
-        </TouchableOpacity>
+        <TouchableOpacity
+  style={styles.moreButton}
+  onPress={() => (navigation as any).navigate("Details")}
+>
+  <Ionicons name="chevron-forward" size={22} color="#9CA3AF" />
+</TouchableOpacity>
+
       </View>
 
       {/* Chart */}
