@@ -200,6 +200,7 @@ export type TrackerSnapshot = {
     thisWeekSec: number;
     thisMonthSec: number;
   };
+
 };
 
 export async function getSnapshot(): Promise<TrackerSnapshot> {
@@ -211,11 +212,20 @@ export async function getSnapshot(): Promise<TrackerSnapshot> {
     readRollup(STORAGE_KEYS.ROLLUP_WEEK),
     readRollup(STORAGE_KEYS.ROLLUP_MONTH),
   ]);
-
-  const now = nowMs();
-  const elapsedSec = running ? clampNonNegative(Math.floor((now - running.startMs) / 1000)) : 0;
+    const now = nowMs();
 
   const todayKey = getDayKeyLocal(now);
+let elapsedSec;
+
+if (running) {
+  // live running timer
+  elapsedSec = Math.floor((now - running.startMs) / 1000);
+} else {
+  // show today's completed work
+  elapsedSec = day[todayKey] ?? 0;
+}
+
+
   const weekKey = getWeekKeyLocal(now);
   const monthKey = getMonthKeyLocal(now);
 
@@ -290,6 +300,35 @@ export async function endShift(): Promise<ShiftSession> {
   // 1) append session
   // 2) update rollups
   // 3) clear running
+
+  function addSessionToRollupsByDay(
+  startMs: number,
+  endMs: number,
+  day: RollupMap,
+  week: RollupMap,
+  month: RollupMap
+) {
+  let cursor = startMs;
+
+  while (cursor < endMs) {
+    const d = new Date(cursor);
+    const nextMidnight = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate() + 1
+    ).getTime();
+
+    const chunkEnd = Math.min(endMs, nextMidnight);
+    const seconds = Math.floor((chunkEnd - cursor) / 1000);
+
+    if (seconds > 0) {
+      addToRollups(cursor, seconds, day, week, month);
+    }
+
+    cursor = chunkEnd;
+  }
+}
+
   const [sessions, day, week, month] = await Promise.all([
     readSessions(),
     readRollup(STORAGE_KEYS.ROLLUP_DAY),
@@ -298,7 +337,8 @@ export async function endShift(): Promise<ShiftSession> {
   ]);
 
   sessions.push(session);
-  addToRollups(session.startMs, session.durationSec, day, week, month);
+  addSessionToRollupsByDay(session.startMs, session.endMs, day, week, month);
+
 
   // Persist updates (best effort atomic-ish via multiSet + sequential)
   await writeSessions(sessions);
