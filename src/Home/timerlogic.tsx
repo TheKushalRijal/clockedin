@@ -248,7 +248,9 @@ if (running) {
  * Start shift.
  * Throws if already running.
  */
-export async function startShift(): Promise<RunningShift> {
+export async function startShift(
+  startDate?: Date
+): Promise<RunningShift> {
   await ensureSchema();
 
   const existing = await readRunning();
@@ -256,27 +258,32 @@ export async function startShift(): Promise<RunningShift> {
     throw new Error("Shift already running.");
   }
 
- const startMs = nowMs();
-const todayKey = getDayKeyLocal(startMs);
-const dayRollup = await readRollup(STORAGE_KEYS.ROLLUP_DAY);
+  const startMs = startDate
+    ? startDate.getTime()
+    : nowMs();
 
-const running: RunningShift = {
-  startMs,
-  startedAtDayKey: todayKey,
-  baseTodaySec: dayRollup[todayKey] ?? 0,
-};
+  const todayKey = getDayKeyLocal(startMs);
+  const dayRollup = await readRollup(STORAGE_KEYS.ROLLUP_DAY);
 
+  const running: RunningShift = {
+    startMs,
+    startedAtDayKey: todayKey,
+    baseTodaySec: dayRollup[todayKey] ?? 0,
+  };
 
   await writeRunning(running);
   return running;
 }
+
 
 /**
  * End shift.
  * Finalizes session, updates sessions + rollups.
  * Returns the created session.
  */
-export async function endShift(): Promise<ShiftSession> {
+export async function endShift(
+  endDate?: Date
+): Promise<ShiftSession> {
   await ensureSchema();
 
   const running = await readRunning();
@@ -284,7 +291,9 @@ export async function endShift(): Promise<ShiftSession> {
     throw new Error("No running shift to end.");
   }
 
-  const endMs = nowMs();
+  const endMs = endDate
+    ? endDate.getTime()
+    : nowMs();
 
   // Handle device time issues (clock moved backwards)
   if (endMs < running.startMs) {
@@ -413,10 +422,22 @@ export function formatHM(totalSec: number) {
   const m = Math.floor((sec % 3600) / 60);
   return `${h}:${pad2(m)}`;
 }
-export async function getAllRollups() {
-  const day = await readRollup(STORAGE_KEYS.ROLLUP_DAY);
-  const week = await readRollup(STORAGE_KEYS.ROLLUP_WEEK);
-  const month = await readRollup(STORAGE_KEYS.ROLLUP_MONTH);
+
+
+
+
+export async function getAllRollups(): Promise<{
+  day: Record<string, number>;
+  week: Record<string, number>;
+  month: Record<string, number>;
+}> {
+  await ensureSchema();
+
+  const [day, week, month] = await Promise.all([
+    readRollup(STORAGE_KEYS.ROLLUP_DAY),
+    readRollup(STORAGE_KEYS.ROLLUP_WEEK),
+    readRollup(STORAGE_KEYS.ROLLUP_MONTH),
+  ]);
 
   return { day, week, month };
 }

@@ -56,7 +56,7 @@ export default function WeeklyReport({ bars, barAnimations }: Props) {
   style={styles.moreButton}
   onPress={() => (navigation as any).navigate("Details")}
 >
-  <Ionicons name="chevron-forward" size={22} color="#9CA3AF" />
+  <Ionicons name="chevron-forward" size={22} color="#ffffffff" />
 </TouchableOpacity>
 
       </View>
@@ -76,6 +76,9 @@ export default function WeeklyReport({ bars, barAnimations }: Props) {
                 },
               ]}
             >
+              <Text style={styles.barValue2}>
+              {item.hours.toFixed(1)}
+            </Text>
               <LinearGradient
                 colors={[item.color, `${item.color}80`]}
                 style={styles.bar}
@@ -119,7 +122,7 @@ export default function WeeklyReport({ bars, barAnimations }: Props) {
 const styles = StyleSheet.create({
   card: {
     borderRadius: 24,
-    padding: 24,
+    padding: 34,
     marginBottom: 20,
     overflow: "hidden",
     backgroundColor: "rgba(17, 24, 39, 0.7)",
@@ -130,13 +133,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 64,
   },
   cardTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#FFFFFF",
-    marginBottom: 4,
+    marginBottom: 1,
+    marginTop: 4,
   },
   cardSubtitle: {
     fontSize: 12,
@@ -146,23 +150,24 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "rgba(255, 255, 255, 0.36)",
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 10,
   },
   chart: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
     height: 150,
-    marginBottom: 20,
+    marginBottom: 5,
   },
   barWrapper: {
     alignItems: "center",
     width: (width - 120) / 7,
   },
   barContainer: {
-    width: 14,
+    width: 20,
     overflow: "hidden",
     borderRadius: 7,
     marginBottom: 8,
@@ -181,6 +186,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#9CA3AF",
     letterSpacing: 0.5,
+  },
+    barValue2: {
+    fontSize: 10,
+    color: "#FFFFFF",
+    fontWeight: "600",
+    marginBottom: 4,
+    width: 30,
   },
   chartFooter: {
     flexDirection: "row",

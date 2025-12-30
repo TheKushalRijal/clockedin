@@ -321,10 +321,13 @@ export default function ReportsScreen() {
 
   const data: ReportItem[] = useMemo(() => {
     if (mode === "daily") {
-      return Object.entries(dayTotals).map(([key, sec]) => ({
-        label: key,
-        hours: sec / 3600,
-      }));
+      return Object.entries(dayTotals)
+  .sort(([a], [b]) => b.localeCompare(a)) // 🔥 newest first
+  .map(([key, sec]) => ({
+    label: key,
+    hours: sec / 3600,
+  }));
+
     }
 
     if (mode === "weekly") {
@@ -353,36 +356,62 @@ export default function ReportsScreen() {
       label: key,
       hours: sec / 3600,
     }));
-  }, [mode]);
+  }, [mode, dayTotals, weekTotals, monthTotals]);
 
-  const stats: StatCard[] = useMemo(() => {
-    const totalHours = data.reduce((sum, item) => sum + item.hours, 0);
-    const avgHours = totalHours / data.length;
-    const peakDay = data.reduce((max, item) => 
-      item.hours > max.hours ? item : max, data[0]
-    );
 
+const stats: StatCard[] = useMemo(() => {
+  if (data.length === 0) {
     return [
       {
         title: "Total Hours",
-        value: totalHours.toFixed(1),
-        subtitle: `${data.length} ${mode} records`,
+        value: "0.0",
+        subtitle: `0 ${mode} records`,
         color: "#4F46E5",
       },
       {
         title: "Avg/Day",
-        value: avgHours.toFixed(1),
+        value: "0.0",
         subtitle: "Average hours",
         color: "#10B981",
       },
       {
         title: "Peak Day",
-        value: peakDay.hours.toFixed(1),
-        subtitle: peakDay.label,
+        value: "0.0",
+        subtitle: "—",
         color: "#F59E0B",
       },
     ];
-  }, [data, mode]);
+  }
+
+  const totalHours = data.reduce((sum, item) => sum + item.hours, 0);
+  const avgHours = totalHours / data.length;
+
+  const peakDay = data.reduce((max, item) =>
+    item.hours > max.hours ? item : max
+  );
+
+  return [
+    {
+      title: "Total Hours",
+      value: totalHours.toFixed(1),
+      subtitle: `${data.length} ${mode} records`,
+      color: "#4F46E5",
+    },
+    {
+      title: "Avg/Day",
+      value: avgHours.toFixed(1),
+      subtitle: "Average hours",
+      color: "#10B981",
+    },
+    {
+      title: "Peak Day",
+      value: peakDay.hours.toFixed(1),
+      subtitle: peakDay.label,
+      color: "#F59E0B",
+    },
+  ];
+}, [data, mode]);
+
 
   const maxHours = Math.max(...data.map((d) => d.hours), 1);
 

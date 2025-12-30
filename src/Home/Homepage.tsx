@@ -20,6 +20,11 @@ import {
   formatHMS,
   formatHM,
 } from "./timerlogic";
+import {
+  getAllRollups,
+  getWeekKeyLocal,
+  getMonthKeyLocal,
+} from "./timerlogic";
 
 /* ────────────────────────────────────────────── */
 /* FALLBACK WEEK DATA                             */
@@ -42,13 +47,118 @@ const EMPTY_WEEK = [
 export default function HomeScreen() {
   /* ───────────── DATA STATE ───────────── */
 
+const [dayRollup, setDayRollup] = useState<Record<string, number>>({});
+
+
+const [weekRollup, setWeekRollup] = useState<Record<string, number>>({});
+const [monthRollup, setMonthRollup] = useState<Record<string, number>>({});
+useEffect(() => {
+  const loadRollups = async () => {
+    const { week, month } = await getAllRollups();
+    setWeekRollup(week);
+    setMonthRollup(month);
+  };
+
+  loadRollups();
+}, []);
+useEffect(() => {
+  const load = async () => {
+    const { day } = await getAllRollups();
+    setDayRollup(day);
+  };
+  load();
+}, []);
+
+function getWeekKeyByOffset(offset: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - offset * 7);
+  return getWeekKeyLocal(d.getTime());
+}
+
+function getMonthKeyByOffset(offset: number) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - offset);
+  return getMonthKeyLocal(d.getTime());
+}
+const thisWeekHM = formatHM(
+  weekRollup[getWeekKeyByOffset(0)] ?? 0
+);
+
+const lastWeekHM = formatHM(
+  weekRollup[getWeekKeyByOffset(1)] ?? 0
+);
+
+const twoWeeksAgoHM = formatHM(
+  weekRollup[getWeekKeyByOffset(2)] ?? 0
+);
+
+const lastMonthHM = formatHM(
+  monthRollup[getMonthKeyByOffset(1)] ?? 0
+);
+
+
+
+
+
+
+
+
+
+function buildCurrentWeekBars(dayRollup: Record<string, number>) {
+  const labels = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+  const colors = [
+    "#6366F1",
+    "#8B5CF6",
+    "#EC4899",
+    "#F59E0B",
+    "#10B981",
+    "#3B82F6",
+    "#EF4444",
+  ];
+
+  // Find Monday of this week (ISO)
+  const now = new Date();
+  const day = (now.getDay() + 6) % 7; // Mon = 0
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - day);
+
+  return labels.map((label, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+
+    const key = `${d.getFullYear()}-${String(
+      d.getMonth() + 1
+    ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+    return {
+      label,
+      hours: (dayRollup[key] ?? 0) / 3600,
+      color: colors[i],
+    };
+  });
+}
+
+
+
+
+
+
   const [elapsedSec, setElapsedSec] = useState(0);
   const [totals, setTotals] = useState({
     todaySec: 0,
     thisWeekSec: 0,
     thisMonthSec: 0,
   });
-  const [isClockedIn, setIsClockedIn] = useState(false);
+const [isClockedIn, setIsClockedIn] = useState(false);
+
+const syncClockState = async () => {
+  const snap = await getSnapshot();
+  setIsClockedIn(Boolean(snap.running));
+};
+
+useEffect(() => {
+  syncClockState();
+}, []);
 
   /* ───────────── UI STATE ───────────── */
 
@@ -139,6 +249,7 @@ export default function HomeScreen() {
     load();
     return () => stopTicking();
   }, []);
+const weeklyBars = buildCurrentWeekBars(dayRollup);
 
   /* ───────────── MIDNIGHT RESET ───────────── */
 
@@ -215,26 +326,28 @@ export default function HomeScreen() {
               <HomeLayout fadeAnim={fadeAnim} slideUpAnim={slideUpAnim} />
 
               <ClockCard
-                status={isClockedIn ? "clocked-in" : "clocked-out"}
-                mainTime={formatHMS(elapsedSec)}
-                thisWeek={formatHM(totals.thisWeekSec)}
-                lastWeek="--:--"
-                twoWeeksAgo="--:--"
-                lastMonth={formatHM(totals.thisMonthSec)}
-              />
+                  status={isClockedIn ? "clocked-in" : "clocked-out"}
+                  mainTime={formatHMS(elapsedSec)}
+                  thisWeek={thisWeekHM}
+                  lastWeek={lastWeekHM}
+                  twoWeeksAgo={twoWeeksAgoHM}
+                  lastMonth={lastMonthHM}
+                />
 
-              <ClockActionButton
+
+                <ClockActionButton
                 isClockedIn={isClockedIn}
                 onClockIn={handleClockIn}
                 onClockOut={handleClockOut}
-                onWheelTouchStart={() => setPageScrollEnabled(false)}
-                onWheelTouchEnd={() => setPageScrollEnabled(true)}
-              />
+                />
+
+
 
               <WeeklyReport
-                bars={EMPTY_WEEK}
+                bars={weeklyBars}
                 barAnimations={barAnimations}
               />
+
             </Animated.View>
           )}
         />

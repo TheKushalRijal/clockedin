@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Hobby",
+    "name": "Clockin",
     "slug": "Hobby",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.thekushal.Hobby"
+      "package": "com.thekushal.Clockin"
     },
     "web": {
       "favicon": "./assets/favicon.png"

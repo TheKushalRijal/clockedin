@@ -6,89 +6,91 @@ import {
   Animated,
   FlatList,
   StyleSheet,
+  Modal,
+  Pressable,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
-/* ────────────────────────────────────────────── */
-/* CONFIG */
-/* ────────────────────────────────────────────── */
+/* ───────── CONFIG ───────── */
 
-const ITEM_HEIGHT = 28;
-const VISIBLE_ROWS = 3;
+const ITEM_HEIGHT = 32;
+const VISIBLE_ROWS = 5;
 
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTES = Array.from({ length: 60 }, (_, i) => i);
+const AMPM = ["AM", "PM"] as const;
 
-/* ────────────────────────────────────────────── */
-/* TYPES */
-/* ────────────────────────────────────────────── */
+/* date wheel: today ± 14 days */
+const buildDates = () => {
+  const base = new Date();
+  return Array.from({ length: 29 }, (_, i) => {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i - 14);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+};
+
+const DATES = buildDates();
+
+/* ───────── TYPES ───────── */
 
 type Props = {
   isClockedIn: boolean;
-  onClockIn: (time: Date) => void;
-  onClockOut: (time: Date) => void;
-  onWheelTouchStart?: () => void;
-  onWheelTouchEnd?: () => void;
+  onClockIn: (time: Date) => Promise<void> | void;
+  onClockOut: (time: Date) => Promise<void> | void;
 };
 
-/* ────────────────────────────────────────────── */
-/* TIME WHEEL */
-/* ────────────────────────────────────────────── */
+/* ───────── WHEEL ───────── */
 
-function TimeWheel({
+function Wheel<T>({
   data,
   value,
+  render,
   onChange,
-  onTouchStart,
-  onTouchEnd,
 }: {
-  data: number[];
-  value: number;
-  onChange: (v: number) => void;
-  onTouchStart?: () => void;
-  onTouchEnd?: () => void;
+  data: readonly T[];
+  value: T;
+  render: (v: T) => string;
+  onChange: (v: T) => void;
 }) {
-  const listRef = useRef<FlatList<number>>(null);
+  const ref = useRef<FlatList<T>>(null);
 
-  // Snap to initial value ONCE
   useEffect(() => {
-    listRef.current?.scrollToOffset({
-      offset: value * ITEM_HEIGHT,
-      animated: false,
-    });
+    const index = data.indexOf(value);
+    if (index >= 0) {
+      ref.current?.scrollToOffset({
+        offset: index * ITEM_HEIGHT,
+        animated: false,
+      });
+    }
   }, []);
 
   return (
-    <View style={styles.wheelContainer}>
+    <View style={styles.wheel}>
       <FlatList
-        ref={listRef}
+        ref={ref}
         data={data}
-        keyExtractor={(item) => String(item)}
+        keyExtractor={(_, i) => String(i)}
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
-        bounces={false}
-        nestedScrollEnabled
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-        contentContainerStyle={styles.wheelContent}
-        getItemLayout={(_, index) => ({
+        getItemLayout={(_, i) => ({
           length: ITEM_HEIGHT,
-          offset: ITEM_HEIGHT * index,
-          index,
+          offset: ITEM_HEIGHT * i,
+          index: i,
         })}
+        contentContainerStyle={{ paddingVertical: ITEM_HEIGHT * 2 }}
         onMomentumScrollEnd={(e) => {
-          const index = Math.round(
+          const i = Math.round(
             e.nativeEvent.contentOffset.y / ITEM_HEIGHT
           );
-          onChange(data[index] ?? value);
+          onChange(data[i] ?? value);
         }}
         renderItem={({ item }) => (
           <View style={styles.wheelItem}>
-            <Text style={styles.wheelText}>
-              {item.toString().padStart(2, "0")}
-            </Text>
+            <Text style={styles.wheelText}>{render(item)}</Text>
           </View>
         )}
       />
@@ -96,101 +98,166 @@ function TimeWheel({
   );
 }
 
-/* ────────────────────────────────────────────── */
-/* MAIN COMPONENT */
-/* ────────────────────────────────────────────── */
+/* ───────── MAIN ───────── */
 
 export default function ClockActionButton({
   isClockedIn,
   onClockIn,
   onClockOut,
-  onWheelTouchStart,
-  onWheelTouchEnd,
 }: Props) {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
+  const scale = useRef(new Animated.Value(1)).current;
   const now = new Date();
-  const [hour, setHour] = useState(now.getHours());
-  const [minute, setMinute] = useState(now.getMinutes());
 
-  const handlePress = () => {
+  const [canvasOpen, setCanvasOpen] = useState(false);
+
+  const [date, setDate] = useState(DATES[14]);
+  const [hour, setHour] = useState(12);
+  const [minute, setMinute] = useState(now.getMinutes());
+  const [ampm, setAmPm] = useState<(typeof AMPM)[number]>(
+    now.getHours() >= 12 ? "PM" : "AM"
+  );
+
+  const pressAnim = () => {
     Animated.sequence([
-      Animated.timing(scaleAnim, {
+      Animated.timing(scale, {
         toValue: 0.96,
-        duration: 100,
+        duration: 90,
         useNativeDriver: true,
       }),
-      Animated.spring(scaleAnim, {
+      Animated.spring(scale, {
         toValue: 1,
-        friction: 8,
+        friction: 7,
         tension: 40,
         useNativeDriver: true,
       }),
     ]).start();
-
-    const selected = new Date();
-    selected.setHours(hour, minute, 0, 0);
-
-    isClockedIn ? onClockOut(selected) : onClockIn(selected);
   };
 
+  /* ───── SUBMIT LOGIC (FIXED) ───── */
+
+  const submit = async (useCustomTime: boolean) => {
+    pressAnim();
+
+    const now = new Date();
+    let finalTime = now;
+
+    if (useCustomTime) {
+      finalTime = new Date(date);
+
+      let h = hour % 12;
+      if (ampm === "PM") h += 12;
+
+      finalTime.setHours(h, minute, 0, 0);
+    }
+
+    try {
+      if (isClockedIn) {
+        await onClockOut(finalTime < now ? now : finalTime);
+      } else {
+        await onClockIn(finalTime);
+      }
+    } catch (e) {
+      console.warn("Clock action failed:", e);
+    } finally {
+      setCanvasOpen(false);
+    }
+  };
+
+  /* ───────── RENDER ───────── */
+
   return (
-    <View style={styles.container}>
-      {/* CLOCK BUTTON */}
-      <Animated.View
-        style={[
-          styles.buttonWrapper,
-          { transform: [{ scale: scaleAnim }] },
-        ]}
-      >
-        <TouchableOpacity activeOpacity={0.9} onPress={handlePress}>
-          <LinearGradient
-            colors={
-              isClockedIn
-                ? ["#EF4444", "#DC2626"]
-                : ["#22C55E", "#16A34A"]
-            }
-            style={styles.button}
-          >
-            <Ionicons
-              name={isClockedIn ? "stop" : "play"}
-              size={18}
-              color="#FFFFFF"
-            />
-            <Text style={styles.buttonText}>
-              {isClockedIn ? "CLOCK OUT" : "CLOCK IN"}
-            </Text>
-          </LinearGradient>
+    <>
+      <View style={styles.container}>
+        <Animated.View
+          style={[
+            styles.buttonWrapper,
+            { transform: [{ scale }] },
+          ]}
+        >
+          <TouchableOpacity onPress={() => submit(false)}>
+            <LinearGradient
+              colors={
+                isClockedIn
+                  ? ["#EF4444", "#DC2626"]
+                  : ["#22C55E", "#16A34A"]
+              }
+              style={styles.button}
+            >
+              <Ionicons
+                name={isClockedIn ? "stop" : "play"}
+                size={18}
+                color="#FFF"
+              />
+              <Text style={styles.buttonText}>
+                {isClockedIn ? "CLOCK OUT" : "CLOCK IN"}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => setCanvasOpen(true)}
+        >
+          <Ionicons name="time-outline" size={22} color="#9CA3AF" />
         </TouchableOpacity>
-      </Animated.View>
-
-      {/* TIME PICKER */}
-      <View style={styles.pickerContainer}>
-        <TimeWheel
-          data={HOURS}
-          value={hour}
-          onChange={setHour}
-          onTouchStart={onWheelTouchStart}
-          onTouchEnd={onWheelTouchEnd}
-        />
-
-        <Text style={styles.colon}>:</Text>
-
-        <TimeWheel
-          data={MINUTES}
-          value={minute}
-          onChange={setMinute}
-          onTouchStart={onWheelTouchStart}
-          onTouchEnd={onWheelTouchEnd}
-        />
       </View>
-    </View>
+
+      {/* CANVAS */}
+      <Modal visible={canvasOpen} transparent animationType="slide">
+        <Pressable
+          style={styles.overlay}
+          onPress={() => setCanvasOpen(false)}
+        />
+
+        <View style={styles.canvas}>
+          <View style={styles.header}>
+            <Text style={styles.label}>date</Text>
+            <Text style={styles.label}>hour</Text>
+            <Text style={styles.label}>min</Text>
+            <Text style={styles.label}></Text>
+          </View>
+
+          <View style={styles.row}>
+            <Wheel
+              data={DATES}
+              value={date}
+              onChange={setDate}
+              render={(d) => d.getDate().toString()}
+            />
+            <Wheel
+              data={HOURS}
+              value={hour}
+              onChange={setHour}
+              render={(h) => h.toString()}
+            />
+            <Wheel
+              data={MINUTES}
+              value={minute}
+              onChange={setMinute}
+              render={(m) => m.toString().padStart(2, "0")}
+            />
+            <Wheel
+              data={AMPM}
+              value={ampm}
+              onChange={setAmPm}
+              render={(v) => v.toLowerCase()}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={styles.confirmButton}
+            onPress={() => submit(true)}
+          >
+            <Text style={styles.confirmText}>Confirm</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    </>
   );
 }
 
-/* ────────────────────────────────────────────── */
-/* STYLES */
-/* ────────────────────────────────────────────── */
+/* ───────── STYLES ───────── */
 
 const styles = StyleSheet.create({
   container: {
@@ -198,12 +265,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginVertical: 12,
   },
-
   buttonWrapper: {
     flex: 1,
     marginRight: 12,
   },
-
   button: {
     height: 52,
     borderRadius: 26,
@@ -212,49 +277,72 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
-
   buttonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
+    color: "#FFF",
     fontWeight: "700",
     letterSpacing: 1,
   },
-
-  pickerContainer: {
-    flexDirection: "row",
+  editButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 10,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.06)",
   },
-
-  wheelContainer: {
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  canvas: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#0B0F14",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 8,
+  },
+  label: {
+    color: "#9CA3AF",
+    fontSize: 12,
+  },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+  wheel: {
     height: ITEM_HEIGHT * VISIBLE_ROWS,
-    width: 42,
+    width: 60,
     overflow: "hidden",
   },
-
-  wheelContent: {
-    paddingVertical: ITEM_HEIGHT,
-  },
-
   wheelItem: {
     height: ITEM_HEIGHT,
     justifyContent: "center",
     alignItems: "center",
   },
-
   wheelText: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "600",
-    color: "#F9FAFB",
-    fontVariant: ["tabular-nums"],
+    color: "#FFF",
   },
-
-  colon: {
-    fontSize: 18,
+  confirmButton: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#22C55E",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  confirmText: {
     fontWeight: "700",
-    color: "#9CA3AF",
-    marginHorizontal: 4,
+    letterSpacing: 1,
+    color: "#0B0F14",
   },
 });
