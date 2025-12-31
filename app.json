@@ -20,9 +20,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+        "versionCode": 1,
+
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.thekushal.Clockin"
+      "package": "com.thekushal.clockin"
     },
     "web": {
       "favicon": "./assets/favicon.png"

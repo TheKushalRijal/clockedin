@@ -1,199 +1,278 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
-  Modal,
+  TouchableOpacity,
+  FlatList,
   Dimensions,
+  TextInput,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
-const ITEM_HEIGHT = 44;
-const VISIBLE = 5;
-const CENTER = Math.floor(VISIBLE / 2);
+import { getAllRollups } from "./timerlogic";
+import { changeDayHours, deleteDayHours } from "./timechangemutator";
+
+type Entry = {
+  id: string;
+  date: string;   // YYYY-MM-DD
+  hours: number;  // decimal hours
+};
+
+type Props = {
+  onClose: () => void;
+};
 
 const { width } = Dimensions.get("window");
 
-/* DATA */
-const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTES = Array.from({ length: 60 }, (_, i) =>
-  String(i).padStart(2, "0")
-);
-const AMPM = ["am", "pm"];
+export default function TimesheetCard({ onClose }: Props) {
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [editDay, setEditDay] = useState<string | null>(null);
+  const [inputHours, setInputHours] = useState("");
 
-/* WHEEL */
-function Wheel({
-  data,
-  value,
-  onChange,
-}: {
-  data: (string | number)[];
-  value: string | number;
-  onChange: (v: any) => void;
-}) {
-  const ref = useRef<FlatList>(null);
+  /* ───────── LOAD DATA ───────── */
+
+  const loadEntries = async () => {
+    const { day } = await getAllRollups();
+
+    const rows: Entry[] = Object.entries(day)
+      .map(([dayKey, totalSec]) => ({
+        id: dayKey,
+        date: dayKey,
+        hours: Number((totalSec / 3600).toFixed(2)),
+      }))
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+    setEntries(rows);
+  };
 
   useEffect(() => {
-    const index = data.indexOf(value);
-    if (index >= 0) {
-      ref.current?.scrollToOffset({
-        offset: (index - CENTER) * ITEM_HEIGHT,
-        animated: false,
-      });
-    }
+    loadEntries();
   }, []);
 
+  /* ───────── RENDER ───────── */
+
   return (
-    <View style={styles.wheel}>
+    <View style={styles.card}>
+      {/* CLOSE */}
+      <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+        <Ionicons name="close" size={28} color="#FFFFFF" />
+      </TouchableOpacity>
+
+      {/* HEADER */}
+      <View style={styles.headerRow}>
+        <Text style={styles.header}>Day</Text>
+        <Text style={styles.header}>Hours</Text>
+        <View style={styles.headerAction} />
+      </View>
+
+      {/* LIST */}
       <FlatList
-        ref={ref}
-        data={data}
-        keyExtractor={(i) => String(i)}
-        snapToInterval={ITEM_HEIGHT}
-        decelerationRate="fast"
+        data={entries}
+        keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingVertical: CENTER * ITEM_HEIGHT,
-        }}
-        onMomentumScrollEnd={(e) => {
-          const index = Math.round(
-            e.nativeEvent.contentOffset.y / ITEM_HEIGHT
-          );
-          onChange(data[index + CENTER]);
-        }}
+        contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <View style={styles.item}>
-            <Text style={styles.itemText}>{item}</Text>
+          <View style={styles.row}>
+            <Text style={styles.dayText}>{item.date}</Text>
+            <Text style={styles.hoursText}>{item.hours}</Text>
+
+            <View style={styles.actions}>
+              {/* CHANGE */}
+              <TouchableOpacity
+                style={styles.pill}
+                onPress={() => {
+                  setEditDay(item.date);
+                  setInputHours(item.hours.toString());
+                }}
+              >
+                <Text style={styles.pillText}>Change</Text>
+              </TouchableOpacity>
+
+              {/* DELETE */}
+              <TouchableOpacity
+                style={styles.pill}
+                onPress={async () => {
+                  await deleteDayHours(item.date);
+                  await loadEntries();
+                }}
+              >
+                <Text style={styles.pillText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       />
+
+      {/* ───────── EDIT HOURS MODAL ───────── */}
+      {editDay && (
+        <View style={styles.editOverlay}>
+          <View style={styles.editModal}>
+            <Text style={styles.editTitle}>Edit hours</Text>
+
+            <TextInput
+              value={inputHours}
+              onChangeText={setInputHours}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 7.5"
+              placeholderTextColor="#9CA3AF"
+              style={styles.input}
+            />
+
+            <View style={styles.editActions}>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditDay(null);
+                  setInputHours("");
+                }}
+              >
+                <Text style={styles.cancel}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={async () => {
+                  const hours = Number(inputHours);
+                  if (!Number.isFinite(hours) || hours < 0) return;
+
+                  await changeDayHours(editDay, hours);
+                  await loadEntries();
+
+                  setEditDay(null);
+                  setInputHours("");
+                }}
+              >
+                <Text style={styles.save}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
-/* MAIN CANVAS */
-export default function TimePickerCanvas({
-  visible,
-  onClose,
-  onConfirm,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onConfirm: (v: {
-    day: number;
-    hour: number;
-    minute: string;
-    ampm: string;
-  }) => void;
-}) {
-  const [day, setDay] = useState(3);
-  const [hour, setHour] = useState(3);
-  const [minute, setMinute] = useState("03");
-  const [ampm, setAmPm] = useState("am");
+/* ───────── STYLES ───────── */
 
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View style={styles.backdrop}>
-        <View style={styles.canvas}>
-          {/* HEADER */}
-          <View style={styles.labels}>
-            <Text style={styles.label}>date</Text>
-            <Text style={styles.label}>hour</Text>
-            <Text style={styles.label}>minute</Text>
-            <Text style={styles.label}></Text>
-          </View>
-
-          {/* WHEELS */}
-          <View style={styles.row}>
-            <Wheel data={DAYS} value={day} onChange={setDay} />
-            <Wheel data={HOURS} value={hour} onChange={setHour} />
-            <Wheel data={MINUTES} value={minute} onChange={setMinute} />
-            <Wheel data={AMPM} value={ampm} onChange={setAmPm} />
-          </View>
-
-          {/* HIGHLIGHT */}
-          <View style={styles.highlight} />
-
-          {/* DONE */}
-          <Text
-            style={styles.done}
-            onPress={() => {
-              onConfirm({ day, hour, minute, ampm });
-              onClose();
-            }}
-          >
-            done
-          </Text>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-/* STYLES */
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
+  card: {
+    width: Math.min(width * 0.92, 380),
+    maxHeight: 420,
+    backgroundColor: "#000000",
+    borderRadius: 24,
+    padding: 20,
   },
 
-  canvas: {
-    width: width - 40,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    paddingVertical: 16,
-    overflow: "hidden",
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
   },
 
-  labels: {
+  headerRow: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    paddingBottom: 8,
+    marginBottom: 12,
+    marginTop: 18,
   },
 
-  label: {
+  header: {
+    width: 90,
     fontSize: 14,
-    color: "#000",
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+
+  headerAction: {
+    flex: 1,
+  },
+
+  listContent: {
+    paddingBottom: 12,
   },
 
   row: {
     flexDirection: "row",
-    justifyContent: "space-around",
+    alignItems: "center",
+    marginVertical: 6,
   },
 
-  wheel: {
-    height: ITEM_HEIGHT * VISIBLE,
-    width: 60,
+  dayText: {
+    width: 90,
+    fontSize: 14,
+    color: "#FFFFFF",
   },
 
-  item: {
-    height: ITEM_HEIGHT,
+  hoursText: {
+    width: 50,
+    fontSize: 14,
+    color: "#FFFFFF",
+  },
+
+  actions: {
+    flexDirection: "row",
+    gap: 6,
+    flexShrink: 1,
+  },
+
+  pill: {
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+  },
+
+  pillText: {
+    fontSize: 12,
+    color: "#111827",
+    fontWeight: "500",
+  },
+
+  /* EDIT MODAL */
+
+  editOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
   },
 
-  itemText: {
-    fontSize: 24,
-    color: "#000",
+  editModal: {
+    width: 280,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
   },
 
-  highlight: {
-    position: "absolute",
-    top: ITEM_HEIGHT * CENTER + 42,
-    left: 10,
-    right: 10,
-    height: ITEM_HEIGHT,
-    backgroundColor: "rgba(120,120,255,0.35)",
-    borderRadius: 10,
-  },
-
-  done: {
-    textAlign: "center",
-    paddingTop: 12,
+  editTitle: {
     fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+
+  input: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    color: "#111827",
+  },
+
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  cancel: {
+    color: "#6B7280",
+  },
+
+  save: {
+    color: "#2563EB",
     fontWeight: "600",
   },
 });

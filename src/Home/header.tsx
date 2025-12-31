@@ -2,39 +2,51 @@ import React from "react";
 import {
   View,
   Text,
-  ScrollView,
-  ImageBackground,
-  TouchableOpacity,
   Animated,
   StyleSheet,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
 
 type Props = {
   fadeAnim: Animated.Value;
   slideUpAnim: Animated.Value;
   children: React.ReactNode;
-
 };
+
+function getGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 12) return "Good Morning";
+  if (hour >= 12 && hour < 17) return "Good Afternoon";
+  return "Good Evening";
+}
 
 export default function HomeLayout({
   fadeAnim,
   slideUpAnim,
   children,
 }: Props) {
+  const greeting = getGreeting();
+
   return (
-   
-     
-        <View style={styles.header}>
-                      <View>
-                        <Text style={styles.greeting}>Good Morning</Text>
-                        <Text style={styles.headerText}>Hard working person</Text>
-                      </View>
-                     
-                    </View>
+    <Animated.View
+      style={[
+        styles.header,
+        {
+          opacity: fadeAnim,
+          transform: [{ translateY: slideUpAnim }],
+        },
+      ]}
+    >
+      <View>
+        <Text style={styles.greeting}>{greeting}</Text>
+        <Text style={styles.headerText}>Hard working Man</Text>
+      </View>
+
+      {children}
+    </Animated.View>
   );
 }
+
 const styles = StyleSheet.create({
   backgroundImage: {
     flex: 1,
