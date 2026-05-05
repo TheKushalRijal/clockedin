@@ -27,7 +27,6 @@ export type ShiftSession = {
   startMs: number; // epoch ms
   endMs: number; // epoch ms
   durationSec: number; // rounded down
-  // Useful denormalized keys for grouping quickly:
   dayKey: string; // YYYY-MM-DD (local)
   weekKey: string; // YYYY-Www (local, Monday-based)
   monthKey: string; // YYYY-MM (local)
@@ -36,9 +35,8 @@ export type ShiftSession = {
 export type RunningShift = {
   startMs: number;
   startedAtDayKey: string;
-  baseTodaySec: number; // ← how much was already worked today
+  baseTodaySec: number; // how much was already worked today
 };
-
 
 export type RollupMap = Record<string, number>; // key -> total seconds
 
@@ -71,16 +69,13 @@ export function getDayKeyLocal(ms: number) {
  */
 export function getWeekKeyLocal(ms: number) {
   const d = new Date(ms);
-  // Copy date at local midnight
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  // JS: Sunday=0..Saturday=6. Convert to Monday=0..Sunday=6
-  const day = (date.getDay() + 6) % 7;
+  const day = (date.getDay() + 6) % 7; // Mon=0..Sun=6
 
   // Thursday trick for ISO week-year alignment
   date.setDate(date.getDate() - day + 3);
   const weekYear = date.getFullYear();
 
-  // Week 1 is the week with Jan 4th in it
   const jan4 = new Date(weekYear, 0, 4);
   const jan4Day = (jan4.getDay() + 6) % 7;
   const week1Thursday = new Date(weekYear, 0, 4 - jan4Day + 3);
@@ -98,7 +93,6 @@ export function getMonthKeyLocal(ms: number) {
 }
 
 function makeId() {
-  // Stable enough for production without deps.
   return `${nowMs()}-${Math.random().toString(16).slice(2)}`;
 }
 
@@ -110,8 +104,6 @@ async function ensureSchema() {
   const vRaw = await AsyncStorage.getItem(STORAGE_KEYS.VERSION);
   const v = vRaw ? Number(vRaw) : 0;
   if (v === SCHEMA_VERSION) return;
-
-  // If schema changes in future, migrate here.
   await AsyncStorage.setItem(STORAGE_KEYS.VERSION, String(SCHEMA_VERSION));
 }
 
@@ -119,7 +111,6 @@ async function ensureSchema() {
 async function readRollup(key: string): Promise<RollupMap> {
   const raw = await AsyncStorage.getItem(key);
   const map = safeJsonParse<RollupMap>(raw, {});
-  // sanitize values
   for (const k of Object.keys(map)) {
     map[k] = clampNonNegative(map[k]);
   }
@@ -134,7 +125,7 @@ async function writeRollups(day: RollupMap, week: RollupMap, month: RollupMap) {
   ]);
 }
 
-/** Adds seconds to rollup maps for the keys derived from startMs (shift grouped by its start day/week/month) */
+/** Adds seconds to rollup maps for the keys derived from startMs */
 function addToRollups(
   startMs: number,
   secondsToAdd: number,
@@ -151,11 +142,34 @@ function addToRollups(
   month[monthKey] = clampNonNegative((month[monthKey] ?? 0) + secondsToAdd);
 }
 
+/** Split a session across local midnights and add to rollups correctly */
+function addSessionToRollupsByDay(
+  startMs: number,
+  endMs: number,
+  day: RollupMap,
+  week: RollupMap,
+  month: RollupMap
+) {
+  let cursor = startMs;
+
+  while (cursor < endMs) {
+    const d = new Date(cursor);
+    const nextMidnight = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+    const chunkEnd = Math.min(endMs, nextMidnight);
+    const seconds = Math.floor((chunkEnd - cursor) / 1000);
+
+    if (seconds > 0) {
+      addToRollups(cursor, seconds, day, week, month);
+    }
+
+    cursor = chunkEnd;
+  }
+}
+
 async function readSessions(): Promise<ShiftSession[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEYS.SESSIONS);
   const sessions = safeJsonParse<ShiftSession[]>(raw, []);
-  // sanitize + drop invalid sessions
-  const cleaned = sessions.filter((s) => {
+  return sessions.filter((s) => {
     return (
       s &&
       typeof s.id === "string" &&
@@ -166,7 +180,6 @@ async function readSessions(): Promise<ShiftSession[]> {
       s.durationSec >= 0
     );
   });
-  return cleaned;
 }
 
 async function writeSessions(sessions: ShiftSession[]) {
@@ -179,6 +192,7 @@ async function readRunning(): Promise<RunningShift | null> {
   if (!r) return null;
   if (!Number.isFinite(r.startMs) || r.startMs <= 0) return null;
   if (typeof r.startedAtDayKey !== "string") return null;
+  if (!Number.isFinite(r.baseTodaySec)) return null;
   return r;
 }
 
@@ -195,52 +209,69 @@ async function writeRunning(running: RunningShift | null) {
  */
 
 export type TrackerSnapshot = {
-  running: RunningShift | null;
-  elapsedSec: number; // 0 if not running
+  running: RunningShift | null; // keep existing name
+  isRunning: boolean; // added safe boolean
+  elapsedSec: number; // elapsed today seconds (includes baseTodaySec if running)
   totals: {
     todaySec: number;
     thisWeekSec: number;
     thisMonthSec: number;
   };
-
+  lastEventAt: number | null;
 };
 
 export async function getSnapshot(): Promise<TrackerSnapshot> {
   await ensureSchema();
 
-  const [running, day, week, month] = await Promise.all([
+  const [running, day, week, month, sessions] = await Promise.all([
     readRunning(),
     readRollup(STORAGE_KEYS.ROLLUP_DAY),
     readRollup(STORAGE_KEYS.ROLLUP_WEEK),
     readRollup(STORAGE_KEYS.ROLLUP_MONTH),
+    readSessions(),
   ]);
-const now = nowMs();
-const todayKey = getDayKeyLocal(now);
-let elapsedSec;
 
-if (running) {
-  const runningSec = Math.floor(
-    (now - running.startMs) / 1000
-  );
+  const now = nowMs();
+  const todayKey = getDayKeyLocal(now);
 
-  elapsedSec = running.baseTodaySec + runningSec;
-} else {
-  elapsedSec = day[todayKey] ?? 0;
-}
-
-
+  let elapsedSec: number;
+  if (running) {
+    if (running.startedAtDayKey === todayKey) {
+      // Shift started today — add prior hours + time since clock-in
+      const runningSec = Math.floor((now - running.startMs) / 1000);
+      elapsedSec = clampNonNegative(running.baseTodaySec + runningSec);
+    } else {
+      // Shift crossed midnight — only count from today's midnight onward
+      const todayMidnight = new Date(now);
+      todayMidnight.setHours(0, 0, 0, 0);
+      const todayRunningSec = Math.floor((now - todayMidnight.getTime()) / 1000);
+      elapsedSec = clampNonNegative((day[todayKey] ?? 0) + todayRunningSec);
+    }
+  } else {
+    elapsedSec = clampNonNegative(day[todayKey] ?? 0);
+  }
 
   const weekKey = getWeekKeyLocal(now);
   const monthKey = getMonthKeyLocal(now);
 
+  let lastEventAt: number | null = null;
+  if (running) {
+    lastEventAt = running.startMs;
+  } else if (sessions.length > 0) {
+    const last = sessions.reduce((a, b) => (a.endMs > b.endMs ? a : b));
+    lastEventAt = last.endMs;
+  }
+
   return {
     running,
+    isRunning: !!running,
     elapsedSec,
     totals: {
       todaySec: clampNonNegative(day[todayKey] ?? 0),
       thisWeekSec: clampNonNegative(week[weekKey] ?? 0),
       thisMonthSec: clampNonNegative(month[monthKey] ?? 0),
     },
+    lastEventAt,
   };
 }
 
@@ -248,9 +279,7 @@ if (running) {
  * Start shift.
  * Throws if already running.
  */
-export async function startShift(
-  startDate?: Date
-): Promise<RunningShift> {
+export async function startShift(startDate?: Date): Promise<RunningShift> {
   await ensureSchema();
 
   const existing = await readRunning();
@@ -258,9 +287,7 @@ export async function startShift(
     throw new Error("Shift already running.");
   }
 
-  const startMs = startDate
-    ? startDate.getTime()
-    : nowMs();
+  const startMs = startDate ? startDate.getTime() : nowMs();
 
   const todayKey = getDayKeyLocal(startMs);
   const dayRollup = await readRollup(STORAGE_KEYS.ROLLUP_DAY);
@@ -268,22 +295,19 @@ export async function startShift(
   const running: RunningShift = {
     startMs,
     startedAtDayKey: todayKey,
-    baseTodaySec: dayRollup[todayKey] ?? 0,
+    baseTodaySec: clampNonNegative(dayRollup[todayKey] ?? 0),
   };
 
   await writeRunning(running);
   return running;
 }
 
-
 /**
  * End shift.
  * Finalizes session, updates sessions + rollups.
  * Returns the created session.
  */
-export async function endShift(
-  endDate?: Date
-): Promise<ShiftSession> {
+export async function endShift(endDate?: Date): Promise<ShiftSession> {
   await ensureSchema();
 
   const running = await readRunning();
@@ -291,15 +315,13 @@ export async function endShift(
     throw new Error("No running shift to end.");
   }
 
-  const endMs = endDate
-    ? endDate.getTime()
-    : nowMs();
+  const endMs = endDate ? endDate.getTime() : nowMs();
 
-  // Handle device time issues (clock moved backwards)
   if (endMs < running.startMs) {
-    // Treat as 0 duration, still close it to avoid "stuck running"
     await writeRunning(null);
-    throw new Error("Device time appears to have moved backwards. Shift was stopped for safety.");
+    throw new Error(
+      "Device time appears to have moved backwards. Shift was stopped for safety."
+    );
   }
 
   const durationSec = clampNonNegative(Math.floor((endMs - running.startMs) / 1000));
@@ -314,39 +336,6 @@ export async function endShift(
     monthKey: getMonthKeyLocal(running.startMs),
   };
 
-  // Read-modify-write in a safe order:
-  // 1) append session
-  // 2) update rollups
-  // 3) clear running
-
-  function addSessionToRollupsByDay(
-  startMs: number,
-  endMs: number,
-  day: RollupMap,
-  week: RollupMap,
-  month: RollupMap
-) {
-  let cursor = startMs;
-
-  while (cursor < endMs) {
-    const d = new Date(cursor);
-    const nextMidnight = new Date(
-      d.getFullYear(),
-      d.getMonth(),
-      d.getDate() + 1
-    ).getTime();
-
-    const chunkEnd = Math.min(endMs, nextMidnight);
-    const seconds = Math.floor((chunkEnd - cursor) / 1000);
-
-    if (seconds > 0) {
-      addToRollups(cursor, seconds, day, week, month);
-    }
-
-    cursor = chunkEnd;
-  }
-}
-
   const [sessions, day, week, month] = await Promise.all([
     readSessions(),
     readRollup(STORAGE_KEYS.ROLLUP_DAY),
@@ -357,8 +346,6 @@ export async function endShift(
   sessions.push(session);
   addSessionToRollupsByDay(session.startMs, session.endMs, day, week, month);
 
-
-  // Persist updates (best effort atomic-ish via multiSet + sequential)
   await writeSessions(sessions);
   await writeRollups(day, week, month);
   await writeRunning(null);
@@ -368,7 +355,6 @@ export async function endShift(
 
 /**
  * Cancel a running shift without saving time.
- * Useful if user tapped start by mistake.
  */
 export async function cancelRunningShift(): Promise<void> {
   await ensureSchema();
@@ -377,7 +363,6 @@ export async function cancelRunningShift(): Promise<void> {
 
 /**
  * Rebuild rollups from sessions.
- * Useful if you ever detect corruption or want to migrate.
  */
 export async function rebuildRollupsFromSessions(): Promise<void> {
   await ensureSchema();
@@ -388,14 +373,14 @@ export async function rebuildRollupsFromSessions(): Promise<void> {
   const month: RollupMap = {};
 
   for (const s of sessions) {
-    addToRollups(s.startMs, clampNonNegative(s.durationSec), day, week, month);
+    addSessionToRollupsByDay(s.startMs, s.endMs, day, week, month);
   }
 
   await writeRollups(day, week, month);
 }
 
 /**
- * Get raw sessions (for reports, history screens).
+ * Get raw sessions.
  */
 export async function getSessions(): Promise<ShiftSession[]> {
   await ensureSchema();
@@ -414,7 +399,7 @@ export function formatHMS(totalSec: number) {
 }
 
 /**
- * Utility: format seconds as H:MM (weekly hours like 40:45)
+ * Utility: format seconds as H:MM
  */
 export function formatHM(totalSec: number) {
   const sec = clampNonNegative(Math.floor(totalSec));
@@ -422,9 +407,6 @@ export function formatHM(totalSec: number) {
   const m = Math.floor((sec % 3600) / 60);
   return `${h}:${pad2(m)}`;
 }
-
-
-
 
 export async function getAllRollups(): Promise<{
   day: Record<string, number>;

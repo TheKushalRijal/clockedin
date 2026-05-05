@@ -216,13 +216,11 @@ const ReportRow = ({ item, index, maxHours }: { item: ReportItem; index: number;
           toValue: 0,
           tension: 60,
           friction: 8,
-          delay,
           useNativeDriver: true,
         }),
         Animated.timing(opacityAnim, {
           toValue: 1,
           duration: 300,
-          delay,
           useNativeDriver: true,
         }),
       ]).start();
@@ -331,17 +329,21 @@ export default function ReportsScreen() {
     }
 
     if (mode === "weekly") {
-      return Object.entries(weekTotals).map(([key, sec]) => ({
-        label: key,
-        hours: sec / 3600,
-      }));
+      return Object.entries(weekTotals)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([key, sec]) => ({
+          label: key,
+          hours: sec / 3600,
+        }));
     }
 
     if (mode === "monthly") {
-      return Object.entries(monthTotals).map(([key, sec]) => ({
-        label: key,
-        hours: sec / 3600,
-      }));
+      return Object.entries(monthTotals)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([key, sec]) => ({
+          label: key,
+          hours: sec / 3600,
+        }));
     }
 
     const quarterlyMap: Record<string, number> = {};
@@ -418,8 +420,8 @@ const stats: StatCard[] = useMemo(() => {
   return (
     <View style={styles.container}>
       <Animated.ScrollView
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
+showsVerticalScrollIndicator={false}
+onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true }
         )}

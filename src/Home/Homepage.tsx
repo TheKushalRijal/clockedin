@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  FlatList,
   ImageBackground,
   StyleSheet,
   ViewStyle,
@@ -19,90 +18,14 @@ import {
   endShift,
   formatHMS,
   formatHM,
-} from "./timerlogic";
-import {
   getAllRollups,
   getWeekKeyLocal,
   getMonthKeyLocal,
 } from "./timerlogic";
 
 /* ────────────────────────────────────────────── */
-/* FALLBACK WEEK DATA                             */
+/* HELPERS (outside component — stable refs)      */
 /* ────────────────────────────────────────────── */
-
-const EMPTY_WEEK = [
-  { label: "MON", hours: 0, color: "#6366F1" },
-  { label: "TUE", hours: 0, color: "#8B5CF6" },
-  { label: "WED", hours: 0, color: "#EC4899" },
-  { label: "THU", hours: 0, color: "#F59E0B" },
-  { label: "FRI", hours: 0, color: "#10B981" },
-  { label: "SAT", hours: 0, color: "#3B82F6" },
-  { label: "SUN", hours: 0, color: "#EF4444" },
-];
-
-/* ────────────────────────────────────────────── */
-/* COMPONENT                                     */
-/* ────────────────────────────────────────────── */
-
-export default function HomeScreen() {
-  /* ───────────── DATA STATE ───────────── */
-
-const [dayRollup, setDayRollup] = useState<Record<string, number>>({});
-
-
-const [weekRollup, setWeekRollup] = useState<Record<string, number>>({});
-const [monthRollup, setMonthRollup] = useState<Record<string, number>>({});
-useEffect(() => {
-  const loadRollups = async () => {
-    const { week, month } = await getAllRollups();
-    setWeekRollup(week);
-    setMonthRollup(month);
-  };
-
-  loadRollups();
-}, []);
-useEffect(() => {
-  const load = async () => {
-    const { day } = await getAllRollups();
-    setDayRollup(day);
-  };
-  load();
-}, []);
-
-function getWeekKeyByOffset(offset: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - offset * 7);
-  return getWeekKeyLocal(d.getTime());
-}
-
-function getMonthKeyByOffset(offset: number) {
-  const d = new Date();
-  d.setMonth(d.getMonth() - offset);
-  return getMonthKeyLocal(d.getTime());
-}
-const thisWeekHM = formatHM(
-  weekRollup[getWeekKeyByOffset(0)] ?? 0
-);
-
-const lastWeekHM = formatHM(
-  weekRollup[getWeekKeyByOffset(1)] ?? 0
-);
-
-const twoWeeksAgoHM = formatHM(
-  weekRollup[getWeekKeyByOffset(2)] ?? 0
-);
-
-const lastMonthHM = formatHM(
-  monthRollup[getMonthKeyByOffset(1)] ?? 0
-);
-
-
-
-
-
-
-
-
 
 function buildCurrentWeekBars(dayRollup: Record<string, number>) {
   const labels = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
@@ -116,7 +39,6 @@ function buildCurrentWeekBars(dayRollup: Record<string, number>) {
     "#EF4444",
   ];
 
-  // Find Monday of this week (ISO)
   const now = new Date();
   const day = (now.getDay() + 6) % 7; // Mon = 0
   const monday = new Date(now);
@@ -125,44 +47,35 @@ function buildCurrentWeekBars(dayRollup: Record<string, number>) {
   return labels.map((label, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-
-    const key = `${d.getFullYear()}-${String(
-      d.getMonth() + 1
-    ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-    return {
-      label,
-      hours: (dayRollup[key] ?? 0) / 3600,
-      color: colors[i],
-    };
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return { label, hours: (dayRollup[key] ?? 0) / 3600, color: colors[i] };
   });
 }
 
+function getWeekKeyByOffset(offset: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - offset * 7);
+  return getWeekKeyLocal(d.getTime());
+}
 
+function getMonthKeyByOffset(offset: number) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - offset);
+  return getMonthKeyLocal(d.getTime());
+}
 
+/* ────────────────────────────────────────────── */
+/* COMPONENT                                     */
+/* ────────────────────────────────────────────── */
 
+export default function HomeScreen() {
+  /* ───────────── DATA STATE ───────────── */
 
-
+  const [dayRollup, setDayRollup] = useState<Record<string, number>>({});
+  const [weekRollup, setWeekRollup] = useState<Record<string, number>>({});
+  const [monthRollup, setMonthRollup] = useState<Record<string, number>>({});
   const [elapsedSec, setElapsedSec] = useState(0);
-  const [totals, setTotals] = useState({
-    todaySec: 0,
-    thisWeekSec: 0,
-    thisMonthSec: 0,
-  });
-const [isClockedIn, setIsClockedIn] = useState(false);
-
-const syncClockState = async () => {
-  const snap = await getSnapshot();
-  setIsClockedIn(Boolean(snap.running));
-};
-
-useEffect(() => {
-  syncClockState();
-}, []);
-
-  /* ───────────── UI STATE ───────────── */
-
-  const [pageScrollEnabled, setPageScrollEnabled] = useState(true);
+  const [isClockedIn, setIsClockedIn] = useState(false);
 
   /* ───────────── ANIMATIONS ───────────── */
 
@@ -179,7 +92,6 @@ useEffect(() => {
 
   const startTicking = () => {
     if (tickRef.current) return;
-
     tickRef.current = setInterval(async () => {
       const snap = await getSnapshot();
       setElapsedSec(snap.elapsedSec);
@@ -198,7 +110,6 @@ useEffect(() => {
   const isNewDay = (last: number, now: number) => {
     const a = new Date(last);
     const b = new Date(now);
-
     return (
       a.getFullYear() !== b.getFullYear() ||
       a.getMonth() !== b.getMonth() ||
@@ -206,15 +117,20 @@ useEffect(() => {
     );
   };
 
-  /* ───────────── INITIAL LOAD ───────────── */
+  /* ───────────── INITIAL LOAD (single effect) ───────────── */
 
   useEffect(() => {
     const load = async () => {
-      const snap = await getSnapshot();
+      const [snap, { day, week, month }] = await Promise.all([
+        getSnapshot(),
+        getAllRollups(),
+      ]);
 
       setElapsedSec(snap.elapsedSec);
-      setTotals(snap.totals);
       setIsClockedIn(!!snap.running);
+      setDayRollup(day);
+      setWeekRollup(week);
+      setMonthRollup(month);
 
       if (snap.running) {
         startTicking();
@@ -234,6 +150,14 @@ useEffect(() => {
       }),
     ]).start();
 
+    load();
+    return () => stopTicking();
+  }, []);
+
+  /* ───────────── BAR ANIMATION (re-runs when data changes) ───────────── */
+
+  useEffect(() => {
+    barAnimations.forEach((anim) => anim.setValue(0));
     Animated.stagger(
       100,
       barAnimations.map((anim) =>
@@ -245,22 +169,15 @@ useEffect(() => {
         })
       )
     ).start();
-
-    load();
-    return () => stopTicking();
-  }, []);
-const weeklyBars = buildCurrentWeekBars(dayRollup);
+  }, [dayRollup]);
 
   /* ───────────── MIDNIGHT RESET ───────────── */
 
   useEffect(() => {
     const midnightCheck = setInterval(async () => {
       const snap = await getSnapshot();
-
-      // Do nothing if still clocked in
       if (snap.running) return;
       if (!snap.lastEventAt) return;
-
       if (isNewDay(snap.lastEventAt, Date.now())) {
         setElapsedSec(0);
       }
@@ -269,29 +186,54 @@ const weeklyBars = buildCurrentWeekBars(dayRollup);
     return () => clearInterval(midnightCheck);
   }, []);
 
+  /* ───────────── DERIVED DATA ───────────── */
+
+  const weeklyBars = useMemo(() => buildCurrentWeekBars(dayRollup), [dayRollup]);
+
+  const thisWeekHM = useMemo(
+    () => formatHM(weekRollup[getWeekKeyByOffset(0)] ?? 0),
+    [weekRollup]
+  );
+  const lastWeekHM = useMemo(
+    () => formatHM(weekRollup[getWeekKeyByOffset(1)] ?? 0),
+    [weekRollup]
+  );
+  const twoWeeksAgoHM = useMemo(
+    () => formatHM(weekRollup[getWeekKeyByOffset(2)] ?? 0),
+    [weekRollup]
+  );
+  const lastMonthHM = useMemo(
+    () => formatHM(monthRollup[getMonthKeyByOffset(1)] ?? 0),
+    [monthRollup]
+  );
+
   /* ───────────── HANDLERS ───────────── */
 
   const handleClockIn = async (time: Date) => {
     await startShift(time);
-
-    const snap = await getSnapshot();
+    const [snap, { day, week, month }] = await Promise.all([
+      getSnapshot(),
+      getAllRollups(),
+    ]);
     setIsClockedIn(true);
     setElapsedSec(snap.elapsedSec);
-    setTotals(snap.totals);
-
+    setDayRollup(day);
+    setWeekRollup(week);
+    setMonthRollup(month);
     startTicking();
   };
 
   const handleClockOut = async (time: Date) => {
     await endShift(time);
-
-    const snap = await getSnapshot();
+    const [snap, { day, week, month }] = await Promise.all([
+      getSnapshot(),
+      getAllRollups(),
+    ]);
     setIsClockedIn(false);
-
-    // Freeze today's final value until midnight
     setElapsedSec(snap.elapsedSec);
-    setTotals(snap.totals);
-
+    setDayRollup(day);
+    setWeekRollup(week);
+    setMonthRollup(month);
     stopTicking();
   };
 
@@ -300,9 +242,7 @@ const weeklyBars = buildCurrentWeekBars(dayRollup);
   return (
     <SafeAreaView style={styles.container}>
       <ImageBackground
-        source={{
-          uri: "./assets/mywallpaper.jpg",
-        }}
+        source={require("../../assets/mywalpaper.jpg")}
         style={styles.backgroundImage}
         blurRadius={20}
       >
@@ -310,7 +250,7 @@ const weeklyBars = buildCurrentWeekBars(dayRollup);
           data={[{ key: "home" }]}
           keyExtractor={(item) => item.key}
           nestedScrollEnabled
-          scrollEnabled={pageScrollEnabled}
+          scrollEnabled
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           renderItem={() => (
@@ -326,28 +266,24 @@ const weeklyBars = buildCurrentWeekBars(dayRollup);
               <HomeLayout fadeAnim={fadeAnim} slideUpAnim={slideUpAnim} />
 
               <ClockCard
-                  status={isClockedIn ? "clocked-in" : "clocked-out"}
-                  mainTime={formatHMS(elapsedSec)}
-                  thisWeek={thisWeekHM}
-                  lastWeek={lastWeekHM}
-                  twoWeeksAgo={twoWeeksAgoHM}
-                  lastMonth={lastMonthHM}
-                />
+                status={isClockedIn ? "clocked-in" : "clocked-out"}
+                mainTime={formatHMS(elapsedSec)}
+                thisWeek={thisWeekHM}
+                lastWeek={lastWeekHM}
+                twoWeeksAgo={twoWeeksAgoHM}
+                lastMonth={lastMonthHM}
+              />
 
-
-                <ClockActionButton
+              <ClockActionButton
                 isClockedIn={isClockedIn}
                 onClockIn={handleClockIn}
                 onClockOut={handleClockOut}
-                />
-
-
+              />
 
               <WeeklyReport
                 bars={weeklyBars}
                 barAnimations={barAnimations}
               />
-
             </Animated.View>
           )}
         />

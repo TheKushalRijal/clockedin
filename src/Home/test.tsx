@@ -174,7 +174,7 @@ export async function getSnapshot() {
   const nowMs = Date.now();
 
   return {
-    running: runningShift,
+    running: !!runningShift, // ✅ boolean ONLY
     elapsedSeconds: runningShift
       ? Math.floor((nowMs - runningShift.startTimeMs) / 1000)
       : 0,
@@ -184,4 +184,5 @@ export async function getSnapshot() {
       thisMonthSeconds: monthTotals[getMonthKey(nowMs)] || 0,
     },
   };
+  
 }

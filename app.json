@@ -2,7 +2,8 @@
   "expo": {
     "name": "Clockin",
     "slug": "Hobby",
-    "version": "1.0.0",
+    "scheme": "clockin",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,8 +21,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-        "versionCode": 1,
-
+      "versionCode": 1,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.thekushal.clockin"
@@ -33,6 +33,10 @@
       "eas": {
         "projectId": "dc72e3ca-cca0-4f0e-9571-61ad1083efed"
       }
-    }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-asset"
+    ]
   }
 }

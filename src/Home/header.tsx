@@ -9,7 +9,7 @@ import {
 type Props = {
   fadeAnim: Animated.Value;
   slideUpAnim: Animated.Value;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 };
 
 function getGreeting() {

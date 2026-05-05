@@ -13,19 +13,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 
 const { width } = Dimensions.get("window");
-const EMPTY_WEEK: {
-  label: string;
-  hours: number;
-  color: string;
-}[] = [
-  { label: "MON", hours: 0, color: "#6366F1" },
-  { label: "TUE", hours: 0, color: "#8B5CF6" },
-  { label: "WED", hours: 0, color: "#EC4899" },
-  { label: "THU", hours: 0, color: "#F59E0B" },
-  { label: "FRI", hours: 0, color: "#10B981" },
-  { label: "SAT", hours: 0, color: "#3B82F6" },
-  { label: "SUN", hours: 0, color: "#EF4444" },
-];
 
 type Bar = {
   label: string;
@@ -39,9 +26,10 @@ type Props = {
 };
 
 export default function WeeklyReport({ bars, barAnimations }: Props) {
+  const navigation = useNavigation<any>();
+
   const totalHours = bars.reduce((sum, b) => sum + b.hours, 0);
   const avgHours = bars.length ? totalHours / bars.length : 0;
-  const navigation = useNavigation();
 
   return (
     <BlurView intensity={80} tint="dark" style={styles.card}>
@@ -53,12 +41,11 @@ export default function WeeklyReport({ bars, barAnimations }: Props) {
         </View>
 
         <TouchableOpacity
-  style={styles.moreButton}
-  onPress={() => (navigation as any).navigate("Details")}
->
-  <Ionicons name="chevron-forward" size={22} color="#ffffffff" />
-</TouchableOpacity>
-
+          style={styles.moreButton}
+          onPress={() => navigation.navigate("Details")}
+        >
+          <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
       </View>
 
       {/* Chart */}
@@ -71,14 +58,15 @@ export default function WeeklyReport({ bars, barAnimations }: Props) {
                 {
                   height: barAnimations[index].interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, item.hours * 10],
+                    outputRange: [0, Math.min(item.hours * 10, 130)],
                   }),
                 },
               ]}
             >
-              <Text style={styles.barValue2}>
-              {item.hours.toFixed(1)}
-            </Text>
+              <Text style={styles.barValueInside}>
+                {item.hours.toFixed(1)}
+              </Text>
+
               <LinearGradient
                 colors={[item.color, `${item.color}80`]}
                 style={styles.bar}
@@ -187,12 +175,13 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     letterSpacing: 0.5,
   },
-    barValue2: {
-    fontSize: 10,
+  barValueInside: {
+    fontSize: 9,
     color: "#FFFFFF",
     fontWeight: "600",
-    marginBottom: 4,
-    width: 30,
+    textAlign: "center",
+    paddingTop: 3,
+    zIndex: 1,
   },
   chartFooter: {
     flexDirection: "row",
